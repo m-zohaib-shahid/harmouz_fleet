@@ -4,14 +4,36 @@ export const MARKER_ROUND = 0.0008;
 
 export function mountMap(mapEl) {
   if (!mapEl) return null;
-  const map = L.map(mapEl, { zoomControl: false }).setView([26.4, 56.5], 8);
-  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  const map = L.map(mapEl, {
+    zoomControl: false,
+    preferCanvas: false,
+  }).setView([26.4, 56.5], 8);
 
+  // Expose the active instance for diagnostics and deferred layout checks.
+  globalThis.mapInstance = map;
+
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     minZoom: 2,
     maxZoom: 18,
+    crossOrigin: true,
   }).addTo(map);
+
+  // Leaflet can initialize while a Vercel layout is still settling. Recalculate
+  // once the browser has painted, and whenever its parent/container changes.
+  const invalidate = () => map.invalidateSize({ animate: false });
+  requestAnimationFrame(() => {
+    invalidate();
+    setTimeout(invalidate, 300);
+  });
+  globalThis.addEventListener?.('load', invalidate, { once: true });
+  globalThis.addEventListener?.('resize', invalidate, { passive: true });
+  if (typeof ResizeObserver !== 'undefined') {
+    const resizeObserver = new ResizeObserver(invalidate);
+    resizeObserver.observe(mapEl);
+    mapEl._aegisResizeObserver = resizeObserver;
+  }
 
   const zonesLayer = L.layerGroup().addTo(map);
   const shipsLayer = L.layerGroup().addTo(map);
