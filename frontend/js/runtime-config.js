@@ -1,18 +1,9 @@
 // Browser-side runtime configuration.
 //
-// Localhost connects directly to the FastAPI server. Public deployments use
-// the live LocalTunnel backend unless AEGIS_BACKEND_URL overrides it during a
-// Vercel build. Keep this value synchronized with the tunnel used for demos.
+// Localhost connects directly to FastAPI. Public deployments connect to the
+// active Microsoft DevTunnels endpoint over HTTPS/WSS.
 const BUILD_BACKEND_URL = "";
-const PRODUCTION_BACKEND_URL = "https://six-actors-switch.loca.lt";
-
-function configuredBackendUrl() {
-  return String(
-    globalThis.AEGIS_CONFIG?.backendUrl || BUILD_BACKEND_URL || '',
-  ).trim().replace(/\/+$/, '');
-}
-
-export const BACKEND_URL = configuredBackendUrl();
+const PRODUCTION_BACKEND_URL = "https://hpltn945-8000.inc1.devtunnels.ms";
 
 function isLocalhost() {
   if (!globalThis.location) return true;
@@ -28,9 +19,11 @@ function localBackendOrigin() {
   return `${globalThis.location.protocol}//${globalThis.location.hostname}:8000`;
 }
 
-export const API_ORIGIN = isLocalhost()
+export const BACKEND_URL = isLocalhost()
   ? localBackendOrigin()
-  : BACKEND_URL || PRODUCTION_BACKEND_URL;
+  : PRODUCTION_BACKEND_URL;
+
+export const API_ORIGIN = BACKEND_URL;
 
 export function apiUrl(path = '/') {
   const value = String(path || '/');
