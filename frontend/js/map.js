@@ -104,7 +104,7 @@ export function renderZones(layerOrMap, zones, opts = {}) {
       dashArray: '5 5',
     }).addTo(layerOrMap);
     poly.bindPopup(
-      `<b>${z.name}</b><br/>severity: ${z.severity} | active: ${z.active ? 'yes' : 'no'}${z.ports ? '<br/>ports: ' + z.ports.join(', ') : ''}`,
+      `<b>${z.name}</b><br/>severity: ${z.severity} | active: ${z.active ? 'yes' : 'no'}${z._local_only ? '<br/><em>LOCAL ONLY — not synchronized</em>' : ''}${z.ports ? '<br/>ports: ' + z.ports.join(', ') : ''}`,
       { className: 'zone-popup' }
     );
     if (!z.active) poly.setStyle({ opacity: 0.4 });

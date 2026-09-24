@@ -16,6 +16,7 @@ export class FeedStore {
     this.ships = new Map();
     this.ports = [];
     this.zones = [];
+    this.localOnlyZones = new Map();
     this.alerts = [];
     this.directives = [];
     this.config = {};
@@ -51,6 +52,48 @@ export class FeedStore {
     if (this.history.length > 120) this.history.shift();
   }
 
+  zoneSignature(zone) {
+    const polygon = zone?.polygon || zone?.coords || [];
+    return `${zone?.name || ''}|${zone?.severity || ''}|${polygon
+      .map((point) => point.map(Number).map((n) => n.toFixed(5)).join(',')).join(';')}`;
+  }
+
+  addLocalZone(zone, ttlMs = 5 * 60 * 1000) {
+    if (!zone?.id) return null;
+    const now = Date.now();
+    // Remove expired optimistic zones and reconcile any identical zone that the
+    // backend may have accepted even when the client lost the HTTP response.
+    for (const [id, local] of this.localOnlyZones) {
+      if (local._expiresAt <= now) this.localOnlyZones.delete(id);
+    }
+    const signature = this.zoneSignature(zone);
+    const alreadyServered = this.zones.some((z) => this.zoneSignature(z) === signature);
+    if (alreadyServered) return null;
+    this.localOnlyZones.set(zone.id, { ...zone, _local_only: true, _expiresAt: now + ttlMs });
+    this.zones = [...this.zones.filter((z) => !this.localOnlyZones.has(z.id)), ...this.localOnlyZones.values()];
+    return this.localOnlyZones.get(zone.id);
+  }
+
+  confirmLocalZone(localId, serverZone) {
+    this.localOnlyZones.delete(localId);
+    if (serverZone?.id) {
+      this.zones = [...this.zones.filter((z) => z.id !== localId && z.id !== serverZone.id), serverZone];
+    }
+  }
+
+  reconcileZones(serverZones) {
+    const authoritative = Array.isArray(serverZones) ? serverZones.filter(Boolean) : null;
+    if (authoritative) {
+      const signatures = new Set(authoritative.map((z) => this.zoneSignature(z)));
+      for (const [id, local] of this.localOnlyZones) {
+        if (local._expiresAt <= Date.now() || signatures.has(this.zoneSignature(local))) {
+          this.localOnlyZones.delete(id);
+        }
+      }
+      this.zones = [...authoritative, ...this.localOnlyZones.values()];
+    }
+  }
+
   applySnapshot(msg) {
     // Merge-only semantics: a partial frame (e.g. `{metrics}`) must NEVER wipe
     // keys the frame does not carry. Previously the 2 s metrics poll called this
@@ -65,11 +108,24 @@ export class FeedStore {
       for (const s of byKey.values()) this.ships.set(s.id || s.shipId, s);
     }
     if (Array.isArray(msg.ports)) this.ports = msg.ports;
-    if (Array.isArray(msg.zones)) this.zones = msg.zones;
+    this.reconcileZones(msg.zones);
     // Zone events carry ONE zone (created/updated/removed) instead of a list.
     if (msg.zone && msg.zone.id) {
-      const rest = this.zones.filter((z) => z.id !== msg.zone.id);
-      this.zones = msg.action === 'removed' ? rest : [...rest, msg.zone];
+      if (msg.action === 'removed') {
+        this.localOnlyZones.delete(msg.zone.id);
+        this.zones = this.zones.filter((z) => z.id !== msg.zone.id);
+      } else {
+        const signature = this.zoneSignature(msg.zone);
+        for (const [id, local] of this.localOnlyZones) {
+          if (this.zoneSignature(local) === signature) this.localOnlyZones.delete(id);
+        }
+        const remainingLocal = [...this.localOnlyZones.values()];
+        this.zones = [
+          ...this.zones.filter((z) => !z._local_only && z.id !== msg.zone.id),
+          msg.zone,
+          ...remainingLocal,
+        ];
+      }
     }
     if (msg.lastAlertTime) this.lastAlertTime = msg.lastAlertTime;
     if (Array.isArray(msg.alerts)) this.alerts = msg.alerts.filter(Boolean).slice(0, 600);
@@ -106,7 +162,7 @@ export class FeedStore {
     for (const s of (msg.ships || [])) this.ships.set(s.id || s.shipId, s);
 
     if (msg.ports) this.ports = msg.ports;
-    if (msg.zones) this.zones = msg.zones;
+    this.reconcileZones(msg.zones);
     if (msg.alert) {
       this.alerts.unshift(msg.alert);
       if (this.alerts.length > 600) this.alerts.pop();

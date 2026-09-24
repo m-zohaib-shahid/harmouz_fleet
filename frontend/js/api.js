@@ -17,16 +17,37 @@ class Api {
   }
 
   headers(extra = {}) {
-    const headers = { 'Content-Type': 'application/json', ...extra };
+    const headers = {
+      'Content-Type': 'application/json',
+      // DevTunnels can serve its anti-phishing HTML to browser POSTs. These
+      // documented bypass headers let the request reach the FastAPI origin.
+      'X-DevTunnel-Skip-AntiPhishing-Page': 'true',
+      'Bypass-Tunnel-Reminder': 'true',
+      ...extra,
+    };
     if (this.token) headers['X-Auth-Token'] = this.token;
     return headers;
   }
 
-  async request(path, { method = 'GET', body = null, raw = false } = {}) {
-    const options = { method, headers: this.headers() };
+  async request(path, { method = 'GET', body = null, raw = false, timeoutMs = 15000 } = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const options = { method, headers: this.headers(), signal: controller.signal };
     if (body !== null) options.body = JSON.stringify(body);
     const started = performance.now();
-    const response = await fetch(apiUrl(path), options);
+    let response;
+    try {
+      response = await fetch(apiUrl(path), options);
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        const timeoutError = new Error(`Request timed out after ${timeoutMs} ms`);
+        timeoutError.code = 'ETIMEDOUT';
+        throw timeoutError;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
     const text = await response.text();
     let data = null;
     try {
@@ -80,7 +101,19 @@ class Api {
     return this.get(`/api/ships/${shipId}/options`);
   }
   async createZone(payload, awaitRoutes = false) {
-    const res = await this.post(`/api/zones?await_routes=${awaitRoutes ? 'true' : 'false'}`, payload);
+    const zonePayload = {
+      name: String(payload?.name || 'Restricted zone').trim().slice(0, 120),
+      polygon: (payload?.polygon || payload?.coords || [])
+        .filter((point) => Array.isArray(point) && point.length >= 2)
+        .map(([lat, lng]) => [Number(lat), Number(lng)]),
+      severity: String(payload?.severity || 'HIGH').toUpperCase(),
+      note: String(payload?.note || '').slice(0, 500),
+      active: payload?.active !== false,
+    };
+    const res = await this.request(`/api/zones?await_routes=${awaitRoutes ? 'true' : 'false'}`, {
+      method: 'POST',
+      body: zonePayload,
+    });
     return res?.zone || res;
   }
   deleteZone(zoneId) {

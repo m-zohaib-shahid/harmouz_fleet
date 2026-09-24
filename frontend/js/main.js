@@ -254,6 +254,17 @@ function zoneOptions(poly, zone) {
   host.appendChild(el('div', { class: 'row hint', text: `Zone: ${zone.name}` }));
   host.appendChild(el('div', { class: 'row hint', text: `Severity: ${zone.severity}` }));
   host.appendChild(el('div', { class: 'row hint', text: `Active: ${zone.active ? 'yes' : 'no'}` }));
+  if (zone._local_only) {
+    host.appendChild(el('div', { class: 'row hint', text: 'LOCAL ONLY — not persisted or synchronized with other clients.' }));
+    const close = el('button', { class: 'btn ghost sm', text: 'Close' });
+    close.addEventListener('click', closeAllModals);
+    const localWrap = el('div', { class: 'row end' });
+    localWrap.appendChild(close);
+    host.appendChild(localWrap);
+    closeAllModals();
+    if (manageModal) manageModal.hidden = false;
+    return;
+  }
   const wrap = el('div', { class: 'row end' });
   const deact = el('button', { class: 'btn ghost sm', text: zone.active ? 'Deactivate' : 'Activate' });
   deact.addEventListener('click', async () => {
@@ -325,14 +336,45 @@ function bindZoneModal() {
       return;
     }
     try {
-      await api.createZone({ name, polygon: currentVertices, severity });
+      const createdZone = await api.createZone({ name, polygon: currentVertices, severity });
+      // Do not wait for the next 1 Hz frame or a follow-up GET. The POST response
+      // is authoritative and should appear immediately on this client's map.
+      if (store && createdZone?.id) {
+        store.applySnapshot({ zone: createdZone });
+        renderZonesOnMap(store.zones);
+      }
       toast('Zone created', `Zone "${name}" active`, 'LOW');
       if (modal) modal.hidden = true;
       currentVertices = null;
       stopZoneDrawing();
       refreshFromServer();
     } catch (err) {
-      toast('Zone creation failed', String(err?.message ?? err), 'HIGH');
+      // Preserve the drawing when DevTunnels/REST is unavailable. The optimistic
+      // zone remains visible temporarily but is clearly not synchronized.
+      const localId = `local-zone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const localZone = {
+        id: localId,
+        name,
+        polygon: currentVertices.map((point) => [...point]),
+        coords: currentVertices.map((point) => [...point]),
+        severity,
+        active: true,
+        note: 'Local only — not persisted to backend',
+        affected_ships: [],
+        _local_only: true,
+        _error: String(err?.message ?? err),
+      };
+      store?.addLocalZone(localZone);
+      if (store?.zones) renderZonesOnMap(store.zones);
+      if (modal) modal.hidden = true;
+      currentVertices = null;
+      stopZoneDrawing();
+      toast(
+        'Zone kept locally',
+        'Backend was unavailable. The polygon is visible on this client but is not synchronized.',
+        'HIGH',
+        8000
+      );
     }
   });
 

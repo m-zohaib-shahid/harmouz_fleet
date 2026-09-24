@@ -25,6 +25,12 @@ export const BACKEND_URL = isLocalhost()
 
 export const API_ORIGIN = BACKEND_URL;
 
+// Public base API origin used by REST callers. Local development keeps the
+// explicit :8000 backend while Vercel resolves to the active DevTunnels host.
+export function getBaseApiUrl() {
+  return API_ORIGIN;
+}
+
 export function apiUrl(path = '/') {
   const value = String(path || '/');
   if (/^https?:\/\//i.test(value)) return value;
