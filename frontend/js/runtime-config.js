@@ -1,9 +1,10 @@
 // Browser-side runtime configuration.
 //
-// During a Vercel build, tools/vercel-build.mjs replaces BUILD_BACKEND_URL
-// with the AEGIS_BACKEND_URL project environment variable. Local/static runs
-// use an empty value and automatically target the local port-8000 backend.
+// Localhost connects directly to the FastAPI server. Public deployments use
+// the live LocalTunnel backend unless AEGIS_BACKEND_URL overrides it during a
+// Vercel build. Keep this value synchronized with the tunnel used for demos.
 const BUILD_BACKEND_URL = "";
+const PRODUCTION_BACKEND_URL = "https://six-actors-switch.loca.lt";
 
 function configuredBackendUrl() {
   return String(
@@ -13,18 +14,23 @@ function configuredBackendUrl() {
 
 export const BACKEND_URL = configuredBackendUrl();
 
-function localBackendOrigin() {
-  if (!globalThis.location) return 'http://localhost:8000';
-  const current = globalThis.location.origin;
+function isLocalhost() {
+  if (!globalThis.location) return true;
   const host = globalThis.location.hostname;
-  const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
-  // A deployed URL assumes an API/WS proxy on the same origin unless the
-  // Vercel build supplied AEGIS_BACKEND_URL. Local frontend dev uses port 8000.
-  if (!isLocal || globalThis.location.port === '8000') return current;
-  return `${globalThis.location.protocol}//${host}:8000`;
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
 }
 
-export const API_ORIGIN = BACKEND_URL || localBackendOrigin();
+function localBackendOrigin() {
+  if (!globalThis.location) return 'http://localhost:8000';
+  // When FastAPI serves the frontend itself, keep same-origin. During local
+  // Vite/static development, use the explicit backend port instead.
+  if (globalThis.location.port === '8000') return globalThis.location.origin;
+  return `${globalThis.location.protocol}//${globalThis.location.hostname}:8000`;
+}
+
+export const API_ORIGIN = isLocalhost()
+  ? localBackendOrigin()
+  : BACKEND_URL || PRODUCTION_BACKEND_URL;
 
 export function apiUrl(path = '/') {
   const value = String(path || '/');
