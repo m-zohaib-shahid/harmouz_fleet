@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node / Vercel
+node_modules/
+dist/
+.vercel/
+
+# Runtime output
+logs/
+*.log
+*.out.txt
+
+# Local environment (commit .env.example only)
+.env
+.env.local
+.env.*.local

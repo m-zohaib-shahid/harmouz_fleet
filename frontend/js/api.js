@@ -1,6 +1,8 @@
 // REST client. The auth token is attached as X-Auth-Token on every call, and
 // also kept in sessionStorage so a refresh keeps the operator logged in.
 
+import { apiUrl } from './runtime-config.js';
+
 const TOKEN_KEY = 'aegis.token';
 
 class Api {
@@ -24,7 +26,7 @@ class Api {
     const options = { method, headers: this.headers() };
     if (body !== null) options.body = JSON.stringify(body);
     const started = performance.now();
-    const response = await fetch(path, options);
+    const response = await fetch(apiUrl(path), options);
     const text = await response.text();
     let data = null;
     try {

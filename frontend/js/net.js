@@ -2,6 +2,8 @@
 // event bus. Every frame is handed to the store; alerts are also emitted so the
 // UI can toast them independently of the state render pass.
 
+import { websocketUrl } from './runtime-config.js';
+
 export class Feed {
   constructor({ onSnapshot, onTick, onAlert, onEvent, onStatus } = {}) {
     this.handlers = { onSnapshot, onTick, onAlert, onEvent, onStatus };
@@ -14,10 +16,8 @@ export class Feed {
   }
 
   url() {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const host = location.host && location.host !== '' ? location.host : 'localhost:8000';
     const query = this.token ? `?token=${encodeURIComponent(this.token)}` : '';
-    return `${proto}://${host}/ws${query}`;
+    return `${websocketUrl('/ws')}${query}`;
   }
 
   connect(token = this.token) {

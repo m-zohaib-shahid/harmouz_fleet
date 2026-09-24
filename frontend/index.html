@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AegisFleet — Real-Time Maritime Crisis Operations</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="./css/app.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='24' font-size='24'>⚓</text></svg>"
+    />
+  </head>
+  <body>
+    <header class="topbar" id="topbar">
+      <div class="brand">
+        <span class="brand-mark">⚓</span>
+        <div>
+          <div class="brand-title">AegisFleet</div>
+          <div class="brand-sub" id="scenario-name">Real-Time Maritime Crisis Operations</div>
+        </div>
+      </div>
+
+      <div class="stat-strip" id="stat-strip"></div>
+
+      <div class="conn">
+        <div class="timeline-bar" id="timeline-wrap">
+          <span class="hint">History</span>
+          <input type="range" id="timeline-slider" min="0" max="60" value="60" title="Scrub fleet history (last 60 min)" />
+          <span id="timeline-label" style="font-family:var(--mono);font-size:10px;color:var(--ok)">LIVE</span>
+        </div>
+        <span class="dot" id="conn-dot"></span>
+        <span id="conn-label">offline</span>
+        <button class="btn ghost" id="toolbar-sound" title="Toggle critical alert sound">🔔</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel left">
+        <section class="card">
+          <h3>Session</h3>
+          <div class="row">
+            <input id="login-token" placeholder="token e.g. command-alpha" autocomplete="off" />
+            <button class="btn" id="login-submit">Connect</button>
+          </div>
+          <div class="hint" id="identity">Role: <b>observer</b> (read-only)</div>
+          <div class="row wrap" id="quick-tokens"></div>
+        </section>
+
+        <section class="card grow">
+          <h3>Fleet <span class="count" id="fleet-count">0/15</span></h3>
+          <div class="row">
+            <input id="fleet-filter" placeholder="filter ships / cargo / status" autocomplete="off" />
+          </div>
+          <div class="scroll" id="fleet-list"></div>
+        </section>
+      </aside>
+
+      <section class="map-wrap">
+        <div id="map"></div>
+        <div class="map-toolbar">
+          <button class="btn ghost" id="toolbar-zone-poly" title="Click vertices on the map, double-click to finish">Draw zone</button>
+          <button class="btn ghost" id="toolbar-zone-rect" title="Drag a rectangle to create a zone">Rect zone</button>
+          <button class="btn ghost" id="toolbar-zone-clear">Cancel</button>
+          <button class="btn ghost" id="toolbar-zone-done">Done</button>
+          <button class="btn ghost" id="toolbar-zone-demo">Demo Strait</button>
+        </div>
+        <div class="map-hint" id="map-hint"></div>
+      </section>
+
+      <aside class="panel right">
+        <section class="card">
+          <h3>Selected vessel</h3>
+          <div id="ship-detail" class="ship-detail">
+            <div class="hint">Click a ship on the map or in the fleet list.</div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>Command &amp; Captain tools</h3>
+          <div id="ship-tools"></div>
+        </section>
+
+        <section class="card grow">
+          <h3>
+            Alert feed
+            <span class="row" style="gap: 6px">
+              <select id="alert-filter" class="mini">
+                <option value="LOW">all</option>
+                <option value="MEDIUM">≥ medium</option>
+                <option value="HIGH">≥ high</option>
+                <option value="CRITICAL">critical</option>
+              </select>
+              <button class="btn ghost mini" id="btn-clear-alerts">clear</button>
+            </span>
+          </h3>
+          <div class="scroll" id="alert-feed"></div>
+        </section>
+      </aside>
+    </main>
+
+    <div id="toasts" class="toasts"></div>
+
+    <!-- zone form modal -->
+    <div class="modal" id="modal-zone" hidden>
+      <div class="modal-box">
+        <h3>New restricted zone</h3>
+        <label>Name <input id="zone-name" value="Naval exclusion" /></label>
+        <label>
+          Severity
+          <select id="zone-severity">
+            <option selected>CRITICAL</option>
+            <option>HIGH</option>
+            <option>MEDIUM</option>
+            <option>LOW</option>
+          </select>
+        </label>
+        <label>Note <input id="zone-note" placeholder="optional" /></label>
+        <div class="hint" id="zone-vertices">0 vertices</div>
+        <code class="poly" id="zone-poly-preview"></code>
+        <div class="row end">
+          <button class="btn ghost" id="zone-cancel">Cancel</button>
+          <button class="btn primary" id="zone-save">Create zone</button>
+        </div>
+        <p id="zone-options" class="hint" style="margin-top:4px"></p>
+      </div>
+    </div>
+
+    <!-- distress modal -->
+    <div class="modal" id="modal-distress" hidden>
+      <div class="modal-box wide">
+        <h3>Distress call</h3>
+        <label>Target vessel <select id="distress-ship-select"></select></label>
+        <div class="row wrap" id="distress-samples"></div>
+        <textarea id="distress-text" rows="4" placeholder="e.g. Engine room fire, 3 casualties, taking water. Request immediate assistance."></textarea>
+        <div class="row end">
+          <button class="btn ghost" id="distress-cancel">Cancel</button>
+          <button class="btn danger" id="distress-send">Transmit (AI parse)</button>
+        </div>
+        <div id="distress-result"></div>
+      </div>
+    </div>
+
+    <!-- directive modal -->
+    <div class="modal" id="modal-directive" hidden>
+      <div class="modal-box">
+        <h3>Issue course directive</h3>
+        <label>Target vessel <select id="directive-ship-select"></select></label>
+        <label>Destination port <select id="directive-port"></select></label>
+        <label>
+          Type
+          <select id="directive-kind">
+            <option value="course">course change</option>
+            <option value="reroute">reroute</option>
+            <option value="hold">hold position</option>
+            <option value="resume">resume transit</option>
+            <option value="assist">render assistance</option>
+          </select>
+        </label>
+        <label>Note <input id="directive-note" placeholder="optional" /></label>
+        <div class="row end">
+          <button class="btn ghost" id="directive-cancel">Cancel</button>
+          <button class="btn primary" id="directive-send">Transmit directive</button>
+        </div>
+      </div>
+    </div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script type="module">
+      import { boot } from './js/main.js';
+      document.addEventListener('DOMContentLoaded', () => boot());
+    </script>
+  </body>
+</html>
