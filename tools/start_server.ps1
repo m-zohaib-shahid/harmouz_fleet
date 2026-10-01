@@ -24,7 +24,11 @@ Start-Sleep -Seconds 1
 # Win32_Process.Create + cmd /c => fully detached from this shell, so closing the
 # terminal (or the agent) cannot kill the server.
 $inner = "`"$py`" -m uvicorn app.main:app --host 0.0.0.0 --port $Port > `"$log`" 2>&1"
-$res = ([wmiclass]'Win32_Process').Create("cmd.exe /c $inner", $backend, $null)
+# NOTE: the extra quoting below is load-bearing. Paths may contain spaces (e.g.
+# "...\New folder\..."), and `cmd.exe /c` strips the *first and last* quote of its
+# argument. Without the outer pair the python path is split at the space, so the
+# server silently never starts. Wrap $inner in a second pair of quotes.
+$res = ([wmiclass]'Win32_Process').Create("cmd.exe /c `"$inner`"", $backend, $null)
 if ($res.ReturnValue -ne 0) { Write-Host "failed to start (code $($res.ReturnValue))" -ForegroundColor Red; exit 1 }
 
 Write-Host "uvicorn launched (PID $($res.ProcessId)); logs -> $log" -ForegroundColor Green

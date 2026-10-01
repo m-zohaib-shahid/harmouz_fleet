@@ -5,6 +5,21 @@
 const BUILD_BACKEND_URL = "";
 const PRODUCTION_BACKEND_URL = "https://hpltn945-8000.inc1.devtunnels.ms";
 
+// The tunnel hostname above is ephemeral: DevTunnels issues a new host every time
+// the backend restarts, and a stale one fails the TLS handshake. Operators can
+// repoint a deployed build at runtime without a rebuild (DevTools console):
+//     window.AEGIS_BACKEND_URL = 'https://<new-tunnel-host>'
+// A localStorage value wins over both constants so the override survives reloads.
+function resolveBackendUrl() {
+  try {
+    const stored = globalThis.localStorage?.getItem('aegis.backendUrl');
+    if (stored) return stored.trim();
+  } catch {
+    /* private mode / disabled storage - fall through to constants */
+  }
+  return (BUILD_BACKEND_URL || PRODUCTION_BACKEND_URL || '').trim().replace(/\/+$/, '');
+}
+
 function isLocalhost() {
   if (!globalThis.location) return true;
   const host = globalThis.location.hostname;
@@ -19,9 +34,11 @@ function localBackendOrigin() {
   return `${globalThis.location.protocol}//${globalThis.location.hostname}:8000`;
 }
 
-export const BACKEND_URL = isLocalhost()
-  ? localBackendOrigin()
-  : PRODUCTION_BACKEND_URL;
+export function resolveActiveBackendUrl() {
+  return isLocalhost() ? localBackendOrigin() : resolveBackendUrl();
+}
+
+export const BACKEND_URL = resolveActiveBackendUrl();
 
 export const API_ORIGIN = BACKEND_URL;
 
@@ -34,11 +51,15 @@ export function getBaseApiUrl() {
 export function apiUrl(path = '/') {
   const value = String(path || '/');
   if (/^https?:\/\//i.test(value)) return value;
-  return `${API_ORIGIN}/${value.replace(/^\/+/, '')}`;
+  // With no backend configured, fall back to same-origin so a co-located
+  // deployment (FastAPI serving the SPA, or a same-origin proxy) still works
+  // instead of producing "undefined/api/state".
+  const base = API_ORIGIN || (globalThis.location ? globalThis.location.origin : '');
+  return `${base}/${value.replace(/^\/+/, '')}`;
 }
 
 export function websocketUrl(path = '/ws') {
-  const url = new URL(apiUrl(path));
+  const url = new URL(apiUrl(path), globalThis.location?.origin || 'http://localhost');
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
 }
